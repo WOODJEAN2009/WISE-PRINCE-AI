@@ -1,0 +1,18 @@
+{
+"name": "wise-prince-ai",
+"version": "1.0.0",
+"description": "WISE PRINCE Intelligent WhatsApp AI Assistant",
+"type": "module",
+"main": "index.js",
+"scripts": {
+"start": "node index.js"
+},
+"dependencies": {
+"@whiskeysockets/baileys": "latest",
+"express": "latest",
+"dotenv": "latest",
+"openai": "latest",
+"qrcode": "latest",
+"cors": "latest"
+}
+}
