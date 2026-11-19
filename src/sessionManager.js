@@ -4,8 +4,8 @@ import makeWASocket, {
 } from "@whiskeysockets/baileys";
 
 import path from "path";
-import { fileURLToPath } from "url";
 import fs from "fs";
+import { fileURLToPath } from "url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -17,15 +17,34 @@ const SESSION_DIR = path.join(
 
 let sock = null;
 let status = "DISCONNECTED";
-let reconnecting = false;
+let reconnectTimer = null;
+let manuallyDisconnected = false;
+let connecting = false;
+let currentUpdate = () => {};
+
+function updateStatus(newStatus, extra = {}) {
+    status = newStatus;
+
+    currentUpdate({
+        status,
+        ...extra
+    });
+}
 
 export async function connectWhatsApp(onUpdate = () => {}) {
-    if (reconnecting) return;
+    currentUpdate = onUpdate;
 
-    reconnecting = true;
+    if (connecting || status === "CONNECTED") {
+        return;
+    }
+
+    connecting = true;
+    manuallyDisconnected = false;
 
     try {
-        fs.mkdirSync(SESSION_DIR, { recursive: true });
+        fs.mkdirSync(SESSION_DIR, {
+            recursive: true
+        });
 
         const { state, saveCreds } =
             await useMultiFileAuthState(SESSION_DIR);
@@ -33,92 +52,32 @@ export async function connectWhatsApp(onUpdate = () => {}) {
         sock = makeWASocket({
             auth: state,
             printQRInTerminal: false,
-            browser: ["WISE PRINCE AI", "Chrome", "1.0.0"],
-            syncFullHistory: false
+            browser: [
+                "WISE PRINCE AI",
+                "Chrome",
+                "1.0.0"
+            ],
+            syncFullHistory: false,
+            markOnlineOnConnect: true
         });
 
         sock.ev.on("creds.update", saveCreds);
 
         sock.ev.on("connection.update", async (update) => {
-            const { connection, lastDisconnect, qr } = update;
+            const {
+                connection,
+                lastDisconnect,
+                qr
+            } = update;
 
             if (qr) {
-                status = "SCAN_QR";
-                onUpdate({ status, qr });
+                updateStatus("SCAN_QR", {
+                    qr
+                });
             }
 
             if (connection === "connecting") {
-                status = "CONNECTING";
-                onUpdate({ status });
+                updateStatus("CONNECTING");
             }
 
-            if (connection === "open") {
-                status = "CONNECTED";
-                reconnecting = false;
-
-                onUpdate({
-                    status,
-                    user: sock.user
-                });
-
-                console.log("WISE PRINCE AI: WhatsApp connected!");
-            }
-
-            if (connection === "close") {
-                status = "DISCONNECTED";
-                reconnecting = false;
-
-                onUpdate({ status });
-
-                const code =
-                    lastDisconnect?.error?.output?.statusCode;
-
-                if (code !== DisconnectReason.loggedOut) {
-                    console.log("Reconnecting WhatsApp...");
-
-                    setTimeout(() => {
-                        connectWhatsApp(onUpdate);
-                    }, 5000);
-                }
-            }
-        });
-
-    } catch (error) {
-        reconnecting = false;
-        status = "ERROR";
-
-        console.error("WhatsApp error:", error);
-
-        onUpdate({
-            status,
-            error: error.message
-        });
-    }
-}
-
-export async function requestPairingCode(phoneNumber) {
-    if (!sock) {
-        throw new Error("WhatsApp socket is not initialized.");
-    }
-
-    if (sock.authState?.creds?.registered) {
-        throw new Error("WhatsApp is already registered.");
-    }
-
-    const number = phoneNumber.replace(/\D/g, "");
-
-    if (!number) {
-        throw new Error("Invalid phone number.");
-    }
-
-    return await sock.requestPairingCode(number);
-}
-
-export function getWhatsAppStatus() {
-    return {
-        status,
-        connected: status === "CONNECTED"
-    };
-}
-
-export async function disconnectWhats
+            if (connection
